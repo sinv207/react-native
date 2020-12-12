@@ -12,7 +12,6 @@
 #include <react/renderer/core/LayoutContext.h>
 #include <react/renderer/debug/DebugStringConvertibleItem.h>
 #include <react/renderer/debug/SystraceSection.h>
-#include <react/utils/ThreadStorage.h>
 #include <yoga/Yoga.h>
 #include <algorithm>
 #include <limits>
@@ -20,6 +19,8 @@
 
 namespace facebook {
 namespace react {
+
+thread_local LayoutContext threadLocalLayoutContext;
 
 static void applyLayoutConstraints(
     YGStyle &yogaStyle,
@@ -80,6 +81,11 @@ YogaLayoutableShadowNode::YogaLayoutableShadowNode(
   assert(
       static_cast<YogaLayoutableShadowNode const &>(sourceShadowNode)
           .yogaNode_.isDirty() == yogaNode_.isDirty());
+
+  if (getTraits().check(ShadowNodeTraits::Trait::
+                            YogaLayoutableKindMutatesStylesAfterCloning)) {
+    yogaNode_.setDirty(true);
+  }
 
   if (fragment.props) {
     updateYogaProps();
@@ -332,7 +338,7 @@ void YogaLayoutableShadowNode::layoutTree(
 
   applyLayoutConstraints(yogaNode_.getStyle(), layoutConstraints);
 
-  ThreadStorage<LayoutContext>::getInstance().set(layoutContext);
+  threadLocalLayoutContext = layoutContext;
 
   if (layoutContext.swapLeftAndRightInRTL) {
     swapLeftAndRightInTree(*this);
@@ -398,6 +404,11 @@ void YogaLayoutableShadowNode::layout(LayoutContext layoutContext) {
       auto newLayoutMetrics = layoutMetricsFromYogaNode(*childYogaNode);
       newLayoutMetrics.pointScaleFactor = layoutContext.pointScaleFactor;
 
+      // Child node's layout has changed. When a node is added to
+      // `affectedNodes`, onLayout event is called on the component. Comparing
+      // `newLayoutMetrics.frame` with `childNode.getLayoutMetrics().frame` to
+      // detect if layout has not changed is not advised, please refer to
+      // D22999891 for details.
       if (layoutContext.affectedNodes) {
         layoutContext.affectedNodes->push_back(&childNode);
       }
@@ -440,7 +451,9 @@ YGNode *YogaLayoutableShadowNode::yogaNodeCloneCallbackConnector(
   auto oldNode =
       static_cast<YogaLayoutableShadowNode *>(oldYogaNode->getContext());
 
-  auto clonedNode = oldNode->clone({});
+  auto clonedNode = oldNode->clone({ShadowNodeFragment::propsPlaceholder(),
+                                    ShadowNodeFragment::childrenPlaceholder(),
+                                    oldNode->getState()});
   parentNode->replaceChild(*oldNode, clonedNode, childIndex);
   return &static_cast<YogaLayoutableShadowNode &>(*clonedNode).yogaNode_;
 }
@@ -485,10 +498,8 @@ YGSize YogaLayoutableShadowNode::yogaNodeMeasureCallbackConnector(
       break;
   }
 
-  auto layoutContext = ThreadStorage<LayoutContext>::getInstance().get();
-
   auto size = shadowNodeRawPtr->measureContent(
-      layoutContext.value_or(LayoutContext{}), {minimumSize, maximumSize});
+      threadLocalLayoutContext, {minimumSize, maximumSize});
 
   return YGSize{yogaFloatFromFloat(size.width),
                 yogaFloatFromFloat(size.height)};

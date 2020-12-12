@@ -55,14 +55,12 @@ struct ShadowViewMutation final {
    * Creates and returns an `Update` mutation.
    */
   static ShadowViewMutation UpdateMutation(
-      ShadowView parentShadowView,
       ShadowView oldChildShadowView,
-      ShadowView newChildShadowView,
-      int index);
+      ShadowView newChildShadowView);
 
 #pragma mark - Type
 
-  enum Type { Create, Delete, Insert, Remove, Update };
+  enum Type { Create = 1, Delete = 2, Insert = 4, Remove = 8, Update = 16 };
 
 #pragma mark - Fields
 
@@ -70,7 +68,7 @@ struct ShadowViewMutation final {
   ShadowView parentShadowView = {};
   ShadowView oldChildShadowView = {};
   ShadowView newChildShadowView = {};
-  int index = {};
+  int index = -1;
 };
 
 using ShadowViewMutationList = std::vector<ShadowViewMutation>;

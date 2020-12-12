@@ -51,6 +51,9 @@ class ScrollViewProps final : public ViewProps {
   std::vector<Float> snapToOffsets{};
   bool snapToStart{true};
   bool snapToEnd{true};
+  ContentInsetAdjustmentBehavior contentInsetAdjustmentBehavior{
+      ContentInsetAdjustmentBehavior::Never};
+  bool scrollToOverflowEnabled{false};
 
 #pragma mark - DebugStringConvertible
 

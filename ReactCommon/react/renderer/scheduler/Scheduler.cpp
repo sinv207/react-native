@@ -67,7 +67,8 @@ Scheduler::Scheduler(
       statePipe,
       schedulerToolbox.synchronousEventBeatFactory,
       schedulerToolbox.asynchronousEventBeatFactory,
-      eventOwnerBox);
+      eventOwnerBox,
+      reactNativeConfig_->getBool("react_fabric:enable_v2_event_coalescing"));
 
   // Casting to `std::shared_ptr<EventDispatcher const>`.
   auto eventDispatcher =
@@ -106,15 +107,17 @@ Scheduler::Scheduler(
   uiManager_->setAnimationDelegate(animationDelegate);
 
 #ifdef ANDROID
-  enableNewStateReconciliation_ = reactNativeConfig_->getBool(
-      "react_fabric:enable_new_state_reconciliation_android");
   removeOutstandingSurfacesOnDestruction_ = reactNativeConfig_->getBool(
       "react_fabric:remove_outstanding_surfaces_on_destruction_android");
+  uiManager_->experimentEnableStateUpdateWithAutorepeat =
+      reactNativeConfig_->getBool(
+          "react_fabric:enable_state_update_with_autorepeat_android");
 #else
-  enableNewStateReconciliation_ = reactNativeConfig_->getBool(
-      "react_fabric:enable_new_state_reconciliation_ios");
   removeOutstandingSurfacesOnDestruction_ = reactNativeConfig_->getBool(
       "react_fabric:remove_outstanding_surfaces_on_destruction_ios");
+  uiManager_->experimentEnableStateUpdateWithAutorepeat =
+      reactNativeConfig_->getBool(
+          "react_fabric:enable_state_update_with_autorepeat_ios");
 #endif
 }
 
@@ -187,8 +190,6 @@ void Scheduler::startSurface(
       *uiManager_,
       mountingOverrideDelegate);
 
-  shadowTree->setEnableNewStateReconciliation(enableNewStateReconciliation_);
-
   auto uiManager = uiManager_;
 
   uiManager->getShadowTreeRegistry().add(std::move(shadowTree));
@@ -221,9 +222,9 @@ void Scheduler::renderTemplateToSurface(
     uiManager_->getShadowTreeRegistry().visit(
         surfaceId, [=](const ShadowTree &shadowTree) {
           return shadowTree.tryCommit(
-              [&](RootShadowNode::Shared const &oldRootShadowNode) {
+              [&](RootShadowNode const &oldRootShadowNode) {
                 return std::make_shared<RootShadowNode>(
-                    *oldRootShadowNode,
+                    oldRootShadowNode,
                     ShadowNodeFragment{
                         /* .props = */ ShadowNodeFragment::propsPlaceholder(),
                         /* .children = */
@@ -241,19 +242,19 @@ void Scheduler::renderTemplateToSurface(
 void Scheduler::stopSurface(SurfaceId surfaceId) const {
   SystraceSection s("Scheduler::stopSurface");
 
-  // Note, we have to do in inside `visit` function while the Shadow Tree
-  // is still being registered.
-  uiManager_->getShadowTreeRegistry().visit(
-      surfaceId, [](ShadowTree const &shadowTree) {
-        // As part of stopping a Surface, we need to properly destroy all
-        // mounted views, so we need to commit an empty tree to trigger all
-        // side-effects that will perform that.
-        shadowTree.commitEmptyTree();
-      });
+  // Stop any ongoing animations.
+  uiManager_->stopSurfaceForAnimationDelegate(surfaceId);
 
   // Waiting for all concurrent commits to be finished and unregistering the
   // `ShadowTree`.
-  uiManager_->getShadowTreeRegistry().remove(surfaceId);
+  auto shadowTree = uiManager_->getShadowTreeRegistry().remove(surfaceId);
+
+  // As part of stopping a Surface, we need to properly destroy all
+  // mounted views, so we need to commit an empty tree to trigger all
+  // side-effects (including destroying and removing mounted views).
+  if (shadowTree) {
+    shadowTree->commitEmptyTree();
+  }
 
   // We execute JavaScript/React part of the process at the very end to minimize
   // any visible side-effects of stopping the Surface. Any possible commits from
@@ -273,19 +274,16 @@ Size Scheduler::measureSurface(
     const LayoutContext &layoutContext) const {
   SystraceSection s("Scheduler::measureSurface");
 
-  Size size;
+  auto currentRootShadowNode = RootShadowNode::Shared{};
   uiManager_->getShadowTreeRegistry().visit(
       surfaceId, [&](const ShadowTree &shadowTree) {
-        shadowTree.tryCommit(
-            [&](RootShadowNode::Shared const &oldRootShadowNode) {
-              auto rootShadowNode =
-                  oldRootShadowNode->clone(layoutConstraints, layoutContext);
-              rootShadowNode->layoutIfNeeded();
-              size = rootShadowNode->getLayoutMetrics().frame.size;
-              return nullptr;
-            });
+        currentRootShadowNode = shadowTree.getCurrentRevision().rootShadowNode;
       });
-  return size;
+
+  auto rootShadowNode =
+      currentRootShadowNode->clone(layoutConstraints, layoutContext);
+  rootShadowNode->layoutIfNeeded();
+  return rootShadowNode->getLayoutMetrics().frame.size;
 }
 
 MountingCoordinator::Shared Scheduler::findMountingCoordinator(
@@ -306,8 +304,8 @@ void Scheduler::constraintSurfaceLayout(
 
   uiManager_->getShadowTreeRegistry().visit(
       surfaceId, [&](ShadowTree const &shadowTree) {
-        shadowTree.commit([&](RootShadowNode::Shared const &oldRootShadowNode) {
-          return oldRootShadowNode->clone(layoutConstraints, layoutContext);
+        shadowTree.commit([&](RootShadowNode const &oldRootShadowNode) {
+          return oldRootShadowNode.clone(layoutConstraints, layoutContext);
         });
       });
 }

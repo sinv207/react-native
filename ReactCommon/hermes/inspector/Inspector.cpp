@@ -132,7 +132,6 @@ Inspector::Inspector(
 }
 
 Inspector::~Inspector() {
-  // TODO: think about expected detach flow
   debugger_.setEventObserver(nullptr);
 }
 
@@ -186,7 +185,7 @@ void Inspector::installConsoleFunction(
                 auto obj = val.getObject(runtime);
                 if (obj.isFunction(runtime)) {
                   auto func = obj.getFunction(runtime);
-                  func.call(runtime, args, count);
+                  func.callWithThis(runtime, *originalConsole, args, count);
                 }
               }
             }

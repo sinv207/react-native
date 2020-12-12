@@ -8,9 +8,11 @@
 package com.facebook.react.codegen.plugin;
 
 import com.android.build.gradle.BaseExtension;
+import com.facebook.react.codegen.generator.JavaGenerator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.File;
+import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -37,9 +39,8 @@ public class CodegenPlugin implements Plugin<Project> {
             "generateCodegenSchemaFromJavaScript",
             Exec.class,
             task -> {
-              if (!extension.enableCodegen) {
-                return;
-              }
+              // This is needed when using codegen from source, not from npm.
+              task.dependsOn(":packages:react-native-codegen:android:buildCodegenCLI");
 
               task.doFirst(
                   s -> {
@@ -77,23 +78,21 @@ public class CodegenPlugin implements Plugin<Project> {
             "generateCodegenArtifactsFromSchema",
             Exec.class,
             task -> {
-              if (!extension.enableCodegen) {
-                return;
-              }
-
               task.dependsOn("generateCodegenSchemaFromJavaScript");
-
-              // TODO: The codegen tool should produce this outputDir structure based on
-              // the provided Java package name.
-              File outputDir =
-                  new File(
-                      generatedSrcDir,
-                      "java/" + extension.codegenJavaPackageName.replace(".", "/"));
 
               task.getInputs()
                   .files(project.fileTree(ImmutableMap.of("dir", extension.codegenDir())));
+              task.getInputs().files(extension.codegenGenerateNativeModuleSpecsCLI());
               task.getInputs().files(generatedSchemaFile);
-              task.getOutputs().dir(outputDir);
+              task.getOutputs().dir(generatedSrcDir);
+
+              if (extension.useJavaGenerator) {
+                task.doLast(
+                    s -> {
+                      generateJavaFromSchemaWithJavaGenerator(
+                          generatedSchemaFile, extension.codegenJavaPackageName, generatedSrcDir);
+                    });
+              }
 
               ImmutableList<String> execCommands =
                   new ImmutableList.Builder<String>()
@@ -102,7 +101,9 @@ public class CodegenPlugin implements Plugin<Project> {
                       .add(extension.codegenGenerateNativeModuleSpecsCLI().getAbsolutePath())
                       .add("android")
                       .add(generatedSchemaFile.getAbsolutePath())
-                      .add(outputDir.getAbsolutePath())
+                      .add(generatedSrcDir.getAbsolutePath())
+                      .add(extension.libraryName)
+                      .add(extension.codegenJavaPackageName)
                       .build();
               task.commandLine(execCommands);
             });
@@ -111,10 +112,6 @@ public class CodegenPlugin implements Plugin<Project> {
     // Note: This last step needs to happen after the project has been evaluated.
     project.afterEvaluate(
         s -> {
-          if (!extension.enableCodegen) {
-            return;
-          }
-
           // `preBuild` is one of the base tasks automatically registered by Gradle.
           // This will invoke the codegen before compiling the entire project.
           Task preBuild = project.getTasks().findByName("preBuild");
@@ -137,7 +134,18 @@ public class CodegenPlugin implements Plugin<Project> {
               .getByName("main")
               .getJava()
               .srcDir(new File(generatedSrcDir, "java"));
-          // TODO: Add JNI sources.
         });
+  }
+
+  // Use Java-based generator implementation to produce the source files, instead of using the
+  // JS-based generator.
+  private void generateJavaFromSchemaWithJavaGenerator(
+      final File schemaFile, final String javaPackageName, final File outputDir) {
+    final JavaGenerator generator = new JavaGenerator(schemaFile, javaPackageName, outputDir);
+    try {
+      generator.build();
+    } catch (final Exception ex) {
+      throw new GradleException("Failed to generate Java from schema.", ex);
+    }
   }
 }

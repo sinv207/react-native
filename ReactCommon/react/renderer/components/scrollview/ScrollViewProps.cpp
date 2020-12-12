@@ -159,7 +159,17 @@ ScrollViewProps::ScrollViewProps(
       snapToStart(
           convertRawProp(rawProps, "snapToStart", sourceProps.snapToStart, {})),
       snapToEnd(
-          convertRawProp(rawProps, "snapToEnd", sourceProps.snapToEnd, {})) {}
+          convertRawProp(rawProps, "snapToEnd", sourceProps.snapToEnd, {})),
+      contentInsetAdjustmentBehavior(convertRawProp(
+          rawProps,
+          "contentInsetAdjustmentBehavior",
+          sourceProps.contentInsetAdjustmentBehavior,
+          {ContentInsetAdjustmentBehavior::Never})),
+      scrollToOverflowEnabled(convertRawProp(
+          rawProps,
+          "scrollToOverflowEnabled",
+          sourceProps.scrollToOverflowEnabled,
+          {})) {}
 
 #pragma mark - DebugStringConvertible
 

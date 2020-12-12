@@ -13,6 +13,9 @@ def use_react_native! (options={})
   # Include DevSupport dependency
   production = options[:production] ||= false
 
+  # Include Hermes dependencies
+  hermes_enabled = options[:hermes_enabled] ||= false
+
   # The Pods which should be included in all projects
   pod 'FBLazyVector', :path => "#{prefix}/Libraries/FBLazyVector"
   pod 'FBReactNativeSpec', :path => "#{prefix}/Libraries/FBReactNativeSpec"
@@ -48,19 +51,25 @@ def use_react_native! (options={})
 
   pod 'DoubleConversion', :podspec => "#{prefix}/third-party-podspecs/DoubleConversion.podspec"
   pod 'glog', :podspec => "#{prefix}/third-party-podspecs/glog.podspec"
-  pod 'Folly', :podspec => "#{prefix}/third-party-podspecs/Folly.podspec"
+  pod 'RCT-Folly', :podspec => "#{prefix}/third-party-podspecs/RCT-Folly.podspec"
 
   if fabric_enabled
     pod 'React-Fabric', :path => "#{prefix}/ReactCommon"
     pod 'React-graphics', :path => "#{prefix}/ReactCommon/fabric/graphics"
     pod 'React-jsi/Fabric', :path => "#{prefix}/ReactCommon/jsi"
     pod 'React-RCTFabric', :path => "#{prefix}/React"
-    pod 'Folly/Fabric', :podspec => "#{prefix}/third-party-podspecs/Folly.podspec"
+    pod 'RCT-Folly/Fabric', :podspec => "#{prefix}/third-party-podspecs/RCT-Folly.podspec"
+  end
+
+  if hermes_enabled
+    pod 'React-hermes', :path => "#{prefix}/ReactCommon/hermes"
+    pod 'hermes-engine'
+    pod 'libevent', :podspec => "#{prefix}/third-party-podspecs/libevent.podspec"
   end
 end
 
 def use_flipper!(versions = {}, configurations: ['Debug'])
-  versions['Flipper'] ||= '~> 0.41.1'
+  versions['Flipper'] ||= '~> 0.54.0'
   versions['Flipper-DoubleConversion'] ||= '1.1.7'
   versions['Flipper-Folly'] ||= '~> 2.2'
   versions['Flipper-Glog'] ||= '0.3.6'
